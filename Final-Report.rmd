@@ -1,0 +1,617 @@
+---
+title: "Final Project Report"
+author: "Doan Phan & Truc Pham"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE, message = FALSE, warning = FALSE)
+if(!require(rstatix)) {install.packages("rstatix")}
+if(!require(nortest)){install.packages("nortest")}
+if(!require(leaflet)) {install.packages("leaflet")}
+if(!require(emmeans)){install.packages("emmeans")}
+if(!require(Hmisc)){install.packages("Hmisc")}
+library(data.table)
+library(dplyr)
+library(stringr)
+library(ggplot2)
+library(rstatix)
+library(nortest)
+library(knitr)
+library(leaflet)
+library(emmeans)
+library(Hmisc)
+```
+
+```{r}
+load("Pusdata.RData")
+
+#rename columns
+pus.df <- pus.df %>%
+  rename(serial.number = SERIALNO, 
+         inflation.factor  = ADJINC,
+         ancestry = ANC1P,
+         age = AGEP,
+         citizen.status = CIT,
+         year.naturalization = CITWP,
+         employment.status = ESR,
+         english.ability = ENG,
+         degree.field = FOD1P,
+         home.lang = LANP,
+         occupation = OCCP,
+         earnings = PERNP,
+         income = PINCP,
+         birth.place = POBP,
+         work.place = POWSP, 
+         education = SCHL,
+         year.entry = YOEP
+          )
+
+dictionary <- read.csv("PUMS_Data_Dictionary_2015-2019.csv")
+
+occupation.dict <- dictionary %>%
+  filter( X2=="OCCP") %>%
+  select(code = X5, descr = X7)
+
+birth.place.dict <- dictionary %>%
+  filter( X2=="POBP") %>%
+  select(code = X5, descr = X7)
+
+degree.field.dict <- dictionary %>%
+  filter( X2=="FOD1P") %>%
+  select(code = X5, descr = X7)
+
+education.dict <- dictionary %>%
+  filter( X2=="SCHL") %>%
+  select(code = X5, descr = X7)
+
+work.place.dict <- dictionary %>%
+  filter( X2=="POWSP") %>%
+  select(code = X5, descr = X7)
+
+citizen.status.dict <- dictionary %>%
+  filter( X2=="CIT") %>%
+  select(code = X5, descr = X7)
+
+employment.status.dict <- dictionary %>%
+  filter( X2=="ESR") %>%
+  select(code = X5, descr = X7)
+
+home.lang.dict <- dictionary %>%
+  filter( X2=="LANP") %>%
+  select(code = X5, descr = X7)
+```
+
+##**1. Data Summary**
+
+The data used for this project is The Public Use Microdata Samples (PUMS), in which data were separated into two types: Person records and Housing Unit records. These PUMS files contain the sample of responses to the American Community Survey (ACS). Data were collected for the period of five years from 2015 to 2019, where data of each year reflected approximately one percent of the United States population. Thus, from 2015 to 2019, PUMS files contained data on approximately five percent of the population. 
+
+The analysis of this project will be based on the Personal records only. Each record of this file represents a single person. Data on individuals were conducted based on their families as they were organized to survey by households. 
+
+17 variables were selected from the Person records to use for analysis. The table below shows a summary of these variables in three columns: Code, Description, and Re-named. Code is the abbreviation of each variable used in PUMS data, Description is what each code stands for based on ACS PUMS Data Dictionary, and the Re-named column shows the names that we assigned for these variables. 
+
+| Code     | Description                                  | Re-named            |
+|----------|----------------------------------------------|---------------------|
+| SERIALNO | Housing unit/GQ person serial number         | serial.number       |
+| ADJINC   | Income and Earnings Inflation Factor         | inflation.factor    |
+| ANC1P    | Ancestry                                     | ancestry            |
+| AGEP     | Age                                          | age                 |
+| CIT      | Citizenship status                           | citizen.status      |
+| CITWP    | Year of naturalization                       | year.naturalization |
+| ESR      | Employment status                            | employment.status   |
+| ENG      | Ability to speak English                     | english.ability     |
+| FOD1P    | Field of degree                              | degree.field        |
+| LANP     | Language spoken at home (other than English) | home.lang           |
+| OCCP     | Occupation                                   | occupation          |
+| PERNP    | Total person's earnings                      | earnings            |
+| PINCP    | Total person's income                        | income              |
+| POBP     | Place of birth                               | birth.place         |
+| POWSP    | Place of work                                | work.place          |
+| SCHL     | Educational attainment                       | education           |
+| YOEP     | Year of entry                                | year.entry          |
+
+
+Some of the selected variables above contain N/As values and N/A of each variable have different meaning:
+
+- **employment.status (ESR)**: N/A (less than 16 years old)
+- **english.ability (ENG)**: N/A (less than 5 years old or speaks only English)
+- **degree.field (FOD1P)**: N/A (less than bachelor's degree)
+- **occupation (OCCP)**: N/A (less than 16 years old/NILF who last worked more than 5 years ago or never worked)
+- **earnings (PERNP)**: N/A (less than 15 years old)
+- **income (PINCP)**: N/A (less than 15 years old)
+- **work.place (POWSP)**: N/A (not in the labor force, including persons under 16 years; unemployed; employed, with a job not at work; Armed Forces, with a job but not at work)
+- **education (SCHL)**: N/A (less than 3 years old)
+- **year.entry (YOEP)**: N/A (Born in the US)
+
+For confidentiality reasons, selected PUMS variables were top-coded or bottom-coded. They were based on a threshold value calculated based on the distribution of the microdata. Top-coded used the top half percent threshold. Values of top-coded variables were replaced with these top-coded values, if they were at or above the threshold. Bottom-coded used the top three percent threshold. Values of bottom-coded variables were replaced with bottom-coded values if they were at or below this threshold. 
+
+Of all selected variables, age (AGEP) were top-coded; some components of total person’s earnings (PERNP) and total person’s income (PINCP) were both top-coded and bottom-coded. These income variables were also subject to PUMS rounding rules: Loss of `$10000` or more were rounded and bottom-coded; Loss `$1` to `$9999` were rounded; `$1` to `$1999998` were rounded and top-coded. 
+
+Additionally, income (PINCP) and earnings (PERNP) variables were collected over the period of 5 years and needed to be adjusted for inflation factor for accuracy. To adjust for inflation, values of inflation.factor (ADJINC) needed to be divided by 1,000,000, and then multiplied by values of income (PINCP) or earnings (PERNP)  to get the total person’s income or earnings adjusted to the 2018 dollar.
+
+An additional file "PUMS_Data_Dictionary_2015-2019.csv" was used to identify the factor name of each variable. We refered to this file to get a description of each code within the variable. 
+
+To narrow down the data for the analysis, we decided to focus our analysis based on Ancestry, specifically Vietnamese Ancestry.  Based on the sample data, there were 71,624 individuals who were of Vietnamese origin. Of all those individuals, 1,111 were born abroad of American parent(s); 33 were born in Puerto Rico, Guam,the U.S. Virgin Islands, or the Northern Marianas; 2,4041 were born in the U.S; 9,855 were not a citizen of the U.S; 36,584 were U.S. citizen by naturalization. 
+
+```{r}
+class(pus.df)
+viet.org <- pus.df %>%
+  filter(ancestry == 785) 
+
+# Add occupation.descr column
+viet.org$occupation <- factor(viet.org$occupation)
+viet.org <- left_join(viet.org, occupation.dict, by = c("occupation" = "code")) %>% rename(occupation.descr = descr )
+
+# Add citizen.status.descr column
+viet.org$citizen.status <- factor(viet.org$citizen.status)
+viet.org <- left_join(viet.org, citizen.status.dict, by = c("citizen.status" = "code")) %>% rename(citizen.status.descr = descr )
+
+# Add education.descr column
+viet.org$education <- factor(viet.org$education)
+viet.org <- left_join(viet.org, education.dict, by = c("education" = "code")) %>% rename(education.descr = descr )
+
+# Add work.place.descr column
+viet.org$work.place <- factor(viet.org$work.place)
+viet.org <- left_join(viet.org, work.place.dict, by = c("work.place" = "code")) %>% rename(work.place.descr = descr )
+
+# Add income.adj for inflation adjustment 
+viet.org <- viet.org %>%
+   mutate(income.adj = (inflation.factor/1000000)*income)
+
+#output result using kable
+status <- viet.org %>% 
+  count(citizen.status.descr)
+
+kable(status, col.names = c("Citizen status", "Toal number of people"),format = "markdown", 
+      caption = "Table 1. Total number of Vietnamese Origin by Citizenship Status") 
+```
+
+The majority of Vietnamese ancestry individuals in this data set were either in their mid 20s, 50s, or 60s years of age. Other age groups were approximately similar. Figure 1. below shows the distribution of ages of individuals in this sample data. The number of individuals in the sample decreases as the age passes 60 years old, except there was a larger amount of people in their 90s. 
+
+```{r}
+age.count <- viet.org %>% count(age, sort = TRUE)
+age.count %>% ggplot(aes(x=age, y=n, fill=age )) + 
+  geom_bar(stat = "identity") +
+  labs(x = "Age", y = "Number of People") + #label x-axis and y-axis
+  ggtitle("Figure 1. Age Distribution of sample data") + #change plot title
+  theme(plot.title = element_text(hjust = 0.5) #center title
+        
+        )
+```
+
+**2. Methodology**
+
+Our analysis focused on the top three groups with the highest number of people that were of Vietnamese origin: U.S citizens by naturalization, citizens that were born in the U.S, and non-U.S citizens. The main goal of the analysis was to identify the differences between these three groups in different areas including education level, field of degree, occupation, income, employment status, ability to speak English. 
+
+Missing values and N/A values of all selected variables were filtered out while were were conducting analysis, as they were not significant in making comparisons (refer to Data Summary section for meaning of N/A values). 
+
+Visualization and test statistics were two main methods of analysis in this project. For visualization method, bar graphs, side-by-side histograms,back-to-back histograms, mapping, and table were used. Bar-graph was used to determine the top 10 occupations by group.  Side-by-side histogram was used to compare the difference in education attainment by group. We only compared the four main education attainments: Regular high school diploma, Associate's degree, Bachelor's degree, Master's degree, and Doctorate degree. Back-to-back histograms was used to compare difference in ages and year of entry to the U.S. Place of work (location) of people in the selected sample within the United States were displayed as an interactive map. Total number of people by location and mean income were also displayed on this map. 
+
+In term of income calculation, we divided `inflation.factor` column (ADJINC) by 1,000,000 to obtain the inflation adjustment factor for each year; then multiplied it with values of income column to get total person’s income adjusted to 2018 dollar. The result were stored in a new column that we created called  “income.adj”. Our main analysis on income were based on the values of this new column. 
+
+For statistical method, we used one-way and two-way ANOVA tests. One-way ANOVA were used to determine whether the mean income of one group was statistically different from other groups. Two-way ANOVA were used to determine the effects of different work places and occupations had on the mean income. 
+
+The analysis that we finally settled on was the differences in education level between three groups, occupations, and how work places and occupation affect income (based on three most popular work locations) using both visualization method and ANOVA statistical tests.  
+
+Besides, we performed other analysis but did not included in our findings (See Appendix for details). We counted the number of languages speaking at home (other than English) of those in the sample data. However, we did not find any interesting trend. Additionally, we conducted a multiple regression to identify which variables were significant in determining the income of the population, but the model did not seem reliable. 
+
+##**3. Findings**
+
+**Top 10 occupations of three groups**
+
+Figure 2. below shows the top 10 most common occupations of people born in the U.S which were: Cashiers, Retail Salespersons, Waiter & Waitresses, Registered Nurses, Manicurist & Pedicurist, Customer Service Representative, Other Managers, Pharmacists, Software Developers, Accountants & Auditors. Cashiers were the most common occupation, about 450 people. Retail Salespersons, and Waiters & Waitresses were the second and third common occupation respectively, where the number of people working these jobs were approximately equal, about 340 people. 
+
+```{r}
+#OCCUPATION
+# Born in U.S
+viet.org %>%
+  filter(!is.na(occupation) & citizen.status == "1") %>%
+  count(occupation.descr) %>%
+  mutate(occupation.descr = reorder(occupation.descr, n)) %>%
+  top_n(10) %>%
+  ggplot(aes(x=occupation.descr,y=n,fill=n)) +
+  geom_col() +
+  coord_flip() +
+  labs(x = "Occupations", y = "Number of people") +
+  ggtitle("Figure 2. Top 10 occupations of people Born in the U.S") +
+  scale_fill_continuous(name="Number of people") +
+  theme(plot.title = element_text(hjust = 0.5))
+```
+
+For those that were U.S Citizen by naturalization, the top 10 most common jobs were: Manicurists and Pedicurists; Assembers and Fabricators; Accountants and Auditors; Hairdressers, Hairstylists, and Cosmetologist; Software Developers; Other Managers; Inspectors, Testers, Sorters, Samplers, and Weighers; Personal Care Aides; Pharmacists; and Registered Nurses (Figure 3). The highest total were Manicurists and Pedicurists, more than 3000 people. Other Assemblers and Fabricators were the second most common occupations, with about 900 people, and Accountants and Auditors were the third most common occupations, in which the number of people was just a little bit less than Other Assemblers and Fabricators occupations. The number of people working as Manicurist and Pedicurist was about at least 3 times more than those from other occupations. 
+
+
+```{r}
+#U.S. citizen  by naturalization (occupation)
+viet.org %>%
+  filter(!is.na(occupation)& citizen.status == "4") %>%
+  count(occupation.descr) %>%
+  mutate(occupation.descr = reorder(occupation.descr, n)) %>%
+  top_n(10) %>%
+  ggplot(aes(x=occupation.descr,y=n,fill=n)) +
+  geom_col() +
+  coord_flip() +
+  labs(x = "Occupations", y = "Number of people") +
+  ggtitle("Figure 3. Top 10 occupations: U.S Citizen by Naturalization") +
+  scale_fill_continuous(name="Number of people") +
+  theme(plot.title = element_text(hjust = 0.5),
+        title = element_text(size = 9.5))
+
+```
+
+Similar to those in the group of U.S citizens by naturalization, the largest number of people in the non-U.S citizens group were Manicurists and Pedicurists, second most common are Other Assemblers and Fabricator. However, the third most common occupations are Cooks. The majority of the top 10 most common occupations of this group fell within the blue collar jobs such as fabricators, janitors, and equipment operators (Figure 4). 
+
+
+```{r}
+# Not a citizen of the U.S (occupation)
+viet.org$occupation.descr <- str_replace(viet.org$occupation.descr,
+                                         "Unemployed, With No Work Experience In The Last 5 Years Or Earlier Or NeverWorked",
+                                         "Unemployed" )
+viet.org$occupation.descr <- str_replace(viet.org$occupation.descr,
+                                         "PRD-Miscellaneous Production Workers, Including Equipment Operators And Tenders",
+                                         "PRD-Miscellaneous Production Workers")
+viet.org %>%
+  filter(!is.na(occupation)& citizen.status == "5") %>%
+  count(occupation.descr) %>%
+  mutate(occupation.descr = reorder(occupation.descr, n)) %>%
+  top_n(10) %>%
+  ggplot(aes(x=occupation.descr,y=n,fill=n)) +
+  geom_col() +
+  coord_flip() +
+  labs(x = "Occupations", y = "Number of people") +
+  ggtitle("Figure 4. Top 10 occupations Non-U.S Citizen ") +
+  scale_fill_continuous(name="Number of people") 
+```
+
+
+**Analysis of Education Attainment**
+
+```{r}
+# Analysis Educational attainment
+
+#filter by group and education
+school.citizen.statusizen.group <- viet.org %>% 
+  filter(citizen.status.descr %in% c("U.S. citizen by naturalization",  "Born in the U.S.",	
+                                     "Not a citizen of the U.S.")) %>%
+  filter(!is.na(education)) %>%
+  count(citizen.status.descr,education.descr) %>%
+  group_by(citizen.status.descr) %>%
+  summarise(education.descr, prop = round(n/sum(n)*100,2)) %>% #convert to proportion
+  filter(education.descr %in% c("Bachelor's degree", "Associate's degree", 
+                                "Regular high school diploma","Master's degree", "Doctorate degree"))
+
+#reordering education attainment
+school.citizen.statusizen.group$education.descr = factor(school.citizen.statusizen.group$education.descr, 
+                                                         levels = c("Regular high school diploma",
+                                                                    "Associate's degree",
+                                                                    "Bachelor's degree", "Master's degree", 
+                                                                    "Doctorate degree"))
+#plotting side-by-side histogram
+ggplot(data = school.citizen.statusizen.group) +
+  geom_bar(mapping = aes(x=education.descr, y=prop,fill = citizen.status.descr), position = "dodge", stat = "identity") +
+  labs(y = "Proportion", x = "Education Attainment (education degree)") +
+  theme(#axis.text.x = element_text(angle = 90),
+        plot.title = element_text(hjust = 0.5)) +
+  scale_fill_discrete(name="Citizenship Status") +
+  scale_x_discrete(labels = c("High School", "Associate","Bachelor", "Master", "Doctorate")) +
+  ggtitle("Figure 5. Education Attainment")
+```
+
+Figure 5. shows the comparison of the highest education attainment at the time the survey were conducted between the three groups. Five education levels in our analysis include High School diploma, Associate's degree, Bachelor's degree, Master degree, and Doctorate's degree. 
+
+In this sample, the majority of those were born in the U.S (15%) and of citizen by naturalization (22%) have completed a bachelor degree, whereas those who were not a citizen of the U.S (25%) had the highest education level as high school. 
+
+**Age Distribution**
+
+```{r}
+age.distribution <- viet.org %>%
+  filter(citizen.status %in% c("1","4")) 
+
+# Age distribution of U.S. citizen by naturalization
+age.distribution.natural <- age.distribution %>%
+  filter(citizen.status.descr == "U.S. citizen by naturalization")
+
+citizen.natural <- viet.org %>% 
+  filter(citizen.status.descr == "U.S. citizen by naturalization")
+
+# Age distribution of Born in the U.S
+citizen.born <- viet.org %>%
+  filter(citizen.status.descr == "Born in the U.S.")
+
+age.distribution.born <- age.distribution %>%
+  filter(citizen.status.descr == "Born in the U.S.")
+
+age.hist <- histbackback(x=citizen.natural$age, y=citizen.born$age, 
+             xlab = c("U.S. citizen by naturalization","Born in the U.S"),
+             ylab = "Age",
+             main = "Figure 6. Ages of U.S Citizen by Naturalization vs. U.S Born")
+
+barplot(-age.hist$left, col="green" , horiz=TRUE, space=0, add=TRUE, axes=FALSE)
+barplot(age.hist$right, col="yellow", horiz=TRUE, space=0, add=TRUE, axes=FALSE)
+
+```
+
+There was a big interference in ages between U.S citizen by naturalization and those who were born in the U.S (Figure 6). Those who were born in the U.S were younger, most of them were teenagers or in early 20s. In contrast, those in U.S citizen by naturalization group were mostly in their 40s to mid 50s. 
+
+**Year of entry**
+
+Year of entry indicates the year in which non U.S born citizens first came to the United States. 
+
+Table 2. presents the year of entry to the U.S for U.S citizen by naturalization. Total number of people arriving by year were listed by the top 5 most common years, in descending order. Year 1975 had the highest number of people arriving to the U.S (3769 people), second highest was year 1980 (2134 people), and third highest was year 1992 (2032 people). Within 1980s-1990s, there was at least 1000 people coming to the U.S every year. 
+
+```{r}
+#year of entry for U.S citizen by naturalization
+entry.naturalization <- viet.org %>%
+  filter(citizen.status == "4") %>%
+  count(year.entry, sort = TRUE) %>%
+  top_n(5)
+
+kable(entry.naturalization, col.names = c("Year of entry", "Toal number of people"),format = "markdown",
+      caption = "Table 2. Year of entry of U.S Citizens by Naturalization")
+```
+
+Those who were not U.S citizens arrived at the U.S at later time. Year 2014 had the highest entries, 869 people. Majority of these citizens came to the U.S in the 2000s. Table 3. below shows the top 5 most common years of entry for non-U.S citizens in descending order. 
+
+```{r}
+#year of entry for non-U.S Citizens
+entry.non.citizen <- viet.org %>%
+  filter(citizen.status == "5") %>%
+  count(year.entry, sort = TRUE) %>%
+  top_n(5)
+
+kable(entry.non.citizen, col.names = c("Year of entry", "Toal number of people"),format = "markdown",
+      caption = "Table 3. Year of entry of non-U.S Citizens")
+```
+
+Figure 7. visualizes the ranges and the difference in years of entry to the U.S between the two groups. Some people in U.S citizen by naturalization group arrived as early as 1941, and as late as 2019, but the largest group came in 1975. The was also a big different in the total number of people between two groups. 
+
+```{r} 
+#year of entry for U.S citizen by naturalization
+citizen.natural <- viet.org %>% 
+  filter(citizen.status.descr == "U.S. citizen by naturalization")
+
+#year of entry for non-U.S Citizens
+citizen.nonus <- viet.org %>%
+  filter(citizen.status.descr == "Not a citizen of the U.S.")
+
+minyear = min(c(citizen.natural$year.entry,citizen.nonus$year.entry ))
+maxyear = max(c(citizen.natural$year.entry,citizen.nonus$year.entry ))
+year.entry.hist <- histbackback(x=citizen.natural$year.entry, y= citizen.nonus$year.entry, brks = seq(from =minyear, to=maxyear,by=1),
+             xlab = c("U.S. citizen by naturalization","Non US"),
+             ylab = "Year of entry",
+             main = "Figure 7. Year of entry: U.S citizen by naturalization vs. Non-U.S citizen"
+            )
+#adding color
+barplot(-year.entry.hist$left, col="red" , horiz=TRUE, space=0, add=TRUE, axes=FALSE)
+barplot(year.entry.hist$right, col="blue", horiz=TRUE, space=0, add=TRUE, axes=FALSE)
+
+```
+
+**Top 10 income by work place**
+
+```{r}
+state.id <- read.csv("state.csv") #read file with states long, lat
+
+income.work.place <- viet.org %>%
+  filter(income.adj > 0 & !is.na(work.place.descr)) %>%
+  group_by(work.place.descr) %>%
+  summarise(num.people = n(), mean.income = mean(income.adj)) 
+
+income.work.place.ext <- income.work.place %>%
+  left_join(state.id, on = c("work.place.descr")) 
+
+#rounding mean.income to whole number
+income.work.place.ext$round.mean.income <- round(income.work.place.ext$mean.income)
+
+#create  map
+leaflet(data = income.work.place.ext) %>%
+  addTiles() %>%
+  addCircles(lng = income.work.place.ext$long, lat = income.work.place.ext$lat,
+             radius = ~sqrt(income.work.place.ext$num.people)*5000,
+             weight = 3,
+             fillColor = "green",
+             highlightOptions = highlightOptions(weight = 3, color = "red", fillColor = "blue"),
+             label = paste(income.work.place.ext$work.place.descr, 
+               "; Number of people:", income.work.place.ext$num.people,
+               "; Mean income:", income.work.place.ext$round.mean.income)
+             )
+```
+
+The map above display all locations in the United States where people of Vietnamese origin were working at time of survey. The circles represent the number of population, where larger circles show higher population. People work at almost 50 states in the U.S including Hawaii and Alaska. The majority of people work in California, 14047 people; and the average income of people working in this state was $58,650. Texas state is the second most popular place of work, with 4871 people earning an average income of $52,302. Florida came third in place, with 1580 people and the average income was $41,001. 
+
+**One-way ANOVA**
+
+```{r}
+
+income.citizen <- viet.org %>%
+  filter( income.adj > 0) %>%
+  filter(citizen.status %in% c("1","4","5")) %>%
+  select(citizen.status.descr, income.adj)
+
+income.citizen.grouping <- income.citizen %>%
+  group_by(citizen.status.descr)
+get_summary_stats(income.citizen.grouping, income.adj, type = "mean_sd")
+
+identify_outliers(income.citizen.grouping, income.adj) %>%
+  filter(is.extreme ==TRUE)
+
+#normality test
+ad.test(filter(income.citizen.grouping, citizen.status.descr == "Born in the U.S.")$income.adj)
+ad.test(filter(income.citizen.grouping, citizen.status.descr == "U.S. citizen by naturalization")$income.adj)
+ad.test(filter(income.citizen.grouping, citizen.status.descr == "Not a citizen of the U.S.")$income.adj)
+
+levene_test(income.citizen, income.adj ~ citizen.status.descr) # variance
+
+anova_test(income.citizen, income.adj ~ citizen.status.descr) #one-way ANOVA
+
+tukey_hsd(income.citizen, income.adj ~ citizen.status.descr) #Tukey post-hoc test
+```
+ 
+To determine whether there was a difference in the mean income from one group to another, we conducted a one-way ANOVA test. Total number of people who have Vietnamese origin were organized into three different groups for this test: Born in the U.S (n = 9297), Not a citizen of the U.S (n = 6481), and U.S.citizen by naturalization (n = 32532).
+
+Null hypothesis for this test was there was no difference in the mean income between three groups. Alternative hypothesis was that the mean income are not equal (at least one mean is different).
+
+Test assumptions for one-way ANOVA were violated. The sample data contained extreme outliers. An Anderson-Darling normality test showed that income were not normaly distributed, p-value < 2.2e-16 for all three groups. Levene's test showed that variances were not homogeneous, p-value < 0.05.
+
+One-way ANOVA test result revealed that income were significantly different between three groups, F(2,48307) = 425.464, p < 0.05, ges = 0.017.
+
+Average income between three groups ranking from highest to lowest is as follow: U.S. citizen by naturalization (M = 48687.17	,SD = 61258.53), Born in the U.S (M = 42508.32, SD = 58142.52), and Not a citizen of the U.S (M = 25939.59, SD = 34492.42). 
+
+Tukey post-hoc analyses revealed that the difference between income of group Born in the U.S to Not a citizen of the U.S (-16568.733, 95% CI [-18759.661, -14377.805	]); Born in the U.S to U.S. citizen by naturalization (6178.848, 95% CI [4586.615	,7771.081]); Not a citizen of the U.S to U.S. citizen by naturalization (22747.581, 95% CI [20905.864, 24589.298]) were all statistically significant (p<0.05).
+
+**Two-way ANOVA**
+
+```{r}
+top.occupation = c("4521","7750","4720")
+top.workplace = c("6","48","12")
+
+income.interaction <- viet.org %>%
+  filter(occupation %in% top.occupation & work.place %in% top.workplace) %>%
+  select(occupation.descr, work.place.descr, income.adj )
+
+income.interaction.grouping <- income.interaction %>%
+  group_by(occupation.descr, work.place.descr) 
+get_summary_stats(income.interaction.grouping, income.adj, type = "mean_sd")
+identify_outliers(income.interaction.grouping, income.adj) %>%
+filter(is.extreme ==TRUE)
+
+shapiro_test(income.interaction.grouping, income.adj) #normality test
+
+levene_test(income.interaction, income.adj ~ occupation.descr*work.place.descr) #variance distribution test
+
+anova_test(income.interaction, income.adj ~ occupation.descr*work.place.descr)
+
+model <- lm(income.adj ~ occupation.descr*work.place.descr, data = income.interaction)
+
+occupation.descr.grouping <- group_by(income.interaction, occupation.descr)
+
+anova_test(occupation.descr.grouping, income.adj ~ work.place.descr, error = model)
+
+
+emmeans_test(occupation.descr.grouping,income.adj ~ work.place.descr, p.adjust.method = "bonferroni") #bonferroni adjustment 
+
+work.place.grouping <- group_by(income.interaction, work.place.descr)
+
+anova_test(work.place.grouping, income.adj ~ occupation.descr, error = model)
+
+emmeans_test(work.place.grouping, income.adj ~ occupation.descr, p.adjust.method = "bonferroni") #bonferroni adjustment 
+
+```
+
+We wanted to know if either workplace, occupation, or some combination of both have an influence on the income of people. Our data sample includes 3084 people from 3 occupations: Other Assemblers And Fabricators, Manicurists And Pedicurists, Cashiers and work in 3 states: California, Florida, Texas.
+
+The null hypotheses we had for this statistical test were: (1) There is no difference in the average income for different place of work; (2) There is no difference in the average income for different occupation; (3) There is no interaction between between place of work and occupations when considering average income. 
+
+There were 3 alternative hypotheses for this test: (1) There is a difference in the average income for different place of work ; (2) There is no difference in the average income for different occupation; (3) There is an interaction between between place of work and occupations when considering average income. 
+
+Test assumptions for two-way ANOVA were violated. The sample data contained extreme outliers. An Shapiro normality test showed that income was not normally distributed, p-value < 0.05 for all nine groups. Levene's test showed that variances were not homogeneous, p-value = 0.046 < 0.05. 
+
+There was a statistically significant interaction effect between workplace and occupation on income, F(4, 3075) = 3.876, p < 0.01, ges = 0.005.
+
+Consequently, an analysis of main effects for the workplace was performed with statistical significance receiving a Bonferroni adjustment. There was a significant difference in mean income for the Manicurists And Pedicurists job, F(2, 3075) = 17, p < 0.0001.  All pairwise comparisons were analyzed between the different workplace groups organized by job. The incomes were significantly different in the Manicurists And Pedicurists job between California and Florida (p < 0.05) and between California and Texas (p<0.05).
+
+Next, an analysis of main effects for the occupation was performed with statistical significance receiving a Bonferroni adjustment. There was a significant difference in mean income for California, F(2 , 3075) = 123, p < 0.001, Florida F(2, 3075) = 3.49, p < 0.05 and Texas F(2, 3075) =  25.1, p < 0.001.  All pairwise comparisons were analyzed between the different jobs organized by workplace. The incomes were not significantly different in Florida between Other Assemblers And Fabricators and Manicurists And Pedicurists (p < 0.05) and between Manicurists And Pedicurists and Cashiers(p<0.05). All the other groups have a significant difference in income.
+
+##**4. Discussion**
+
+Through visualization and statistical methods. We have come to some meaningful conclusions regarding the education level, occupations, and income of three groups who were Vietnamese of origin living in the United States: U.S citizens by naturalization, Born in the U.S, and non-U.S citizens. 
+
+People in these group were living in almost 50 states of the U.S. However, California, Texas, and Florida had the highest population, as reflected by place of work. The majority of U.S born and U.S citizen by naturalization earned Bachelor degrees at time of survey, whereas majority of non-U.S citizen group earned high school diploma. In terms of advance education, proportion of U.S citizen by naturalization group earning Master's degrees and Doctorate's degree were higher than other two groups. 
+
+The most common occupations of U.S Citizen by naturalization and non-U.S citizen were similar, which were Manicurists and Pedicurists. However, U.S Born individuals mainly worked as Cashiers. Results of one-way ANOVA test confirmed that U.S Citizen by naturalization group had the highest average income, while non-U.S citizen group had the lowest average income. 
+
+Additionally, there was a statistically significant difference in average income between the three most common occupations: Other Assemblers And Fabricators, Manicurists And Pedicurists, and Cashiers in three states California, Texas, and Florida. Specifically, average income for Manicurist and Pedicurists were lower in California ($20,206) than in both Texas ($35,518) and Florida ($32,067). 
+
+Year of entry to the U.S revealed an interesting trend. Those who were U.S Citizen came to the U.S in the 1970s - 1990s, in which year 1975 had the highest population. Year 1975, in Vietnam and world history recorded as the "Fall of Saigon", which started the immigration waves of Vietnamese to other countries around the world, especially to the U.S. Those who were non U.S citizens, in contrast, arrived at much later time in the 2000s, in which majority of those in the survey came in 2014. 
+
+**Potential limitations**
+
+We believed that there could be some limitations in our findings and there were some con-founders that affected our analysis. 
+Citizenship status may not be accurate. As indicated in PUMS data, citizenship status of a person could be based on the information of other household members if no information was provided for that person. However, place of birth was used to adjusted for citizenship status in PUMS data, which may not cause a big difference in our findings. 
+
+In term of occupation analysis, English ability, age, or financial circumstances could play significant roles in determining occupations. The occupations of those who were U.S citizen by naturalization or non-U.S citizen could be affected by their ability to speak English and age, since English was most likely not their first language. Additionally, due to the age when they come to the U.S those could be the only jobs they had the abilities to do. On the other hands, U.S born citizens could be younger in age but need some income for school, so they took up some part time jobs such as cashiers, or waiters and waitresses. 
+
+In terms of income, average income can be affected by the demand of jobs or skills of workers. For example, demand for Manicurists and Pedicurist in California may be low due to competitiveness. 
+
+The results from our one-way and two-way ANOVA test may not be reliable because all assumptions including normality distribution, homogeneous of variance, no extreme outliers were violated. Thus, we do not have much confidence our statistical analysis. 
+
+
+##**5. Appendix**
+
+1. Codes used to filter and export data to a new RData file:
+
+```{r, echo = TRUE, include = TRUE, eval = FALSE}
+install.packages("ff")
+install.packages("data.table")
+library(data.table)
+library(dplyr)
+library(ggplot2)
+
+#select 17 variables
+columns = c("SERIALNO", 
+            "ADJINC", #Income and Earnings Inflation Factor
+            "ENG", # Ability to speak English
+            "ANC1P", # Ancestry (first entry)
+            "AGEP", # Age
+            "POBP", # Place of birth
+            "CIT", # Citizen status
+            "CITWP", # Year of naturalization
+            "YOEP", # Year of entry
+            "ESR", # Employment status (employment status recode)
+            "OCCP", # Occupation 
+            "POWSP", #Place of work
+            "LANP", # Language spoken at home (other than English)
+            "SCHL", # Educational attainment
+            "FOD1P", # Field of degree (first entry)
+            "PERNP", # Total person's earnings
+            "PINCP" # Total person's income 
+            )
+
+#read each PUMS Person records files
+pusadata <- fread("psam_pusa.csv",  select = columns)
+pusbdata <- fread("psam_pusb.csv",  select = columns)
+puscdata <- fread("psam_pusc.csv",  select = columns)
+pusddata <- fread("psam_pusd.csv",  select = columns)
+
+pus.df <- rbind(pusadata,pusbdata,puscdata,pusddata)
+save(pus.df, file = "Pusdata.RData") #save as RData file
+
+load("Pusdata.RData") #load new data for analysis
+```
+
+2. Unused codes in report:
+
+```{r, echo = TRUE, include = TRUE, eval = FALSE}
+
+# Analysis home language
+viet.org$home.lang<- factor(viet.org$home.lang)
+viet.org <- left_join(viet.org, home.lang.dict, by = c("home.lang" = "code")) %>% rename(home.lang.descr = descr )
+
+viet.org %>%
+  count(home.lang.descr, sort = TRUE)
+
+#multiple regression
+viet.org.income <- viet.org %>%
+  filter(income.adj > 0)
+
+fit.lm <- lm(income.adj ~ age  + education + english.ability  + occupation +work.place,data=viet.org.income)
+summary(fit.lm)
+
+#table displaying income by locations
+income.work.place <- viet.org %>%
+  filter(income.adj > 0 & !is.na(work.place.descr)) %>%
+  group_by(work.place.descr) %>%
+  summarise(num.people = n(), mean.income = mean(income.adj)) 
+
+income.work.place %>%
+  arrange(desc(mean.income))
+
+sorted.income.work.place <- income.work.place %>%
+  arrange(desc(num.people),desc(mean.income)) 
+
+kable(sorted.income.work.place, col.names = c("Work place locations", "Total number of people", 
+                                             "Mean income"), format = "markdown")
+
+```
+
+
